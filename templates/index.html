@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>News-Insight BERT | 深度新闻分类系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; padding: 40px; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h1 { color: #1a73e8; text-align: center; margin-bottom: 30px; }
+
+        textarea { width: 100%; height: 120px; padding: 15px; border: 2px solid #ddd; border-radius: 10px; font-size: 16px; resize: none; transition: 0.3s; box-sizing: border-box; }
+        textarea:focus { border-color: #1a73e8; outline: none; }
+
+        .controls { margin-top: 20px; display: flex; justify-content: center; }
+        .btn { background: #1a73e8; color: white; border: none; padding: 12px 30px; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 600; }
+        .btn:hover { background: #1557b0; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        .result-section { display: none; margin-top: 40px; border-top: 1px solid #eee; padding-top: 30px; }
+        .result-section.active { display: block; }
+
+        /* Token 染色样式 */
+        .token-viewer { line-height: 2.5; margin-bottom: 25px; padding: 15px; background: #fdfdfd; border-radius: 8px; border: 1px solid #f0f0f0; }
+        .token { padding: 4px 2px; margin: 0 2px; border-radius: 4px; transition: 0.3s; cursor: help; border-bottom: 2px solid transparent; }
+
+        #chart { width: 100%; height: 350px; margin-top: 20px; }
+        .summary { display: flex; justify-content: space-between; align-items: center; background: #e8f0fe; padding: 15px 25px; border-radius: 10px; margin-bottom: 20px; }
+        .label-tag { font-size: 24px; font-weight: bold; color: #1a73e8; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>News-Insight BERT System</h1>
+
+    <textarea id="newsInput" placeholder="Enter news headline or content here..."></textarea>
+
+    <div class="controls">
+        <button class="btn" id="predictBtn" onclick="analyzeNews()">Run Deep Inference</button>
+    </div>
+
+    <div class="result-section" id="resultSection">
+        <div class="summary">
+            <div>
+                <span style="color: #666;">Predicted Category:</span>
+                <span class="label-tag" id="finalLabel">Loading...</span>
+            </div>
+            <div id="confidence">Confidence: 0%</div>
+        </div>
+
+        <h3 style="margin-bottom: 10px;">Attention Map (Interpretability)</h3>
+        <p style="font-size: 14px; color: #888; margin-bottom: 10px;">*Darker highlights indicate words that the BERT model focused on more during classification.</p>
+        <div class="token-viewer" id="tokenViewer"></div>
+
+        <div id="chart"></div>
+    </div>
+</div>
+
+<script>
+    async function analyzeNews() {
+        const content = document.getElementById('newsInput').value;
+        const btn = document.getElementById('predictBtn');
+        if (!content) return alert("请输入内容");
+
+        btn.disabled = true;
+        btn.innerText = "Processing...";
+
+        try {
+            // 注意：这里连接的是 FastAPI 的 8000 端口
+            const response = await fetch('http://127.0.0.1:8000/api/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: content })
+            });
+
+            const data = await response.json();
+
+            // 展示结果区域
+            document.getElementById('resultSection').className = 'result-section active';
+            document.getElementById('finalLabel').innerText = data.label;
+            document.getElementById('confidence').innerText = "Confidence：" + (data.probability * 100).toFixed(2) + "%";
+
+            // 1. 渲染 Token 染色
+            renderTokens(data.tokens, data.attention_weights);
+
+            // 2. 绘制概率分布图
+            renderChart(data.all_probs);
+
+        } catch (error) {
+            console.error("failed:", error);
+            alert("Connection failed. Please ensure FastAPI server is running on port 8000.");
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Run Deep Inference";
+        }
+    }
+
+    function renderTokens(tokens, weights) {
+        const viewer = document.getElementById('tokenViewer');
+        viewer.innerHTML = '';
+        const maxWeight = Math.max(...weights);
+
+        tokens.forEach((t, i) => {
+            const span = document.createElement('span');
+            span.className = 'token';
+            span.innerText = t;
+
+            // 计算颜色深度 (使用蓝色系)
+            const alpha = weights[i] / maxWeight;
+            span.style.backgroundColor = `rgba(26, 115, 232, ${alpha * 0.8})`;
+            span.style.color = alpha > 0.5 ? 'white' : 'black';
+            span.title = `权重: ${weights[i].toFixed(4)}`;
+
+            viewer.appendChild(span);
+        });
+    }
+
+    function renderChart(allProbs) {
+        const chartDom = document.getElementById('chart');
+        if (echarts.getInstanceByDom(chartDom)) {
+        echarts.dispose(chartDom);
+    }
+
+    const myChart = echarts.init(chartDom, null, {
+        devicePixelRatio: window.devicePixelRatio,
+        renderer: 'svg' // 如果依然模糊，svg 是最终解决方案
+    });
+
+        // 排序数据
+        const sortedLabels = Object.keys(allProbs).sort((a, b) => allProbs[a] - allProbs[b]);
+        const sortedValues = sortedLabels.map(l => (allProbs[l] * 100).toFixed(2));
+
+        const option = {
+            title: { text: 'Probability Distribution (%)', left: 'center' },
+            tooltip: { trigger: 'axis', formatter: '{b}: {c}%' },
+            grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+            xAxis: { type: 'value', max: 100 },
+            yAxis: { type: 'category', data: sortedLabels },
+            series: [{
+                name: 'Confidence',
+                type: 'bar',
+                data: sortedValues,
+                itemStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                        { offset: 0, color: '#83bff6' },
+                        { offset: 0.5, color: '#188df0' },
+                        { offset: 1, color: '#188df0' }
+                    ])
+                },
+                emphasis: { itemStyle: { color: '#1557b0' } },
+                label: { show: true, position: 'right', formatter: '{c}%' }
+            }]
+        };
+        myChart.setOption(option);
+    }
+</script>
+
+</body>
+</html>

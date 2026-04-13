@@ -1,0 +1,14 @@
+# 忽略权重文件
+*.ckpt
+*.bin
+*.pth
+
+# 忽略文件夹
+bert_pretrain/
+THUCNews/saved_dict/
+THUCNews/data/
+.idea/
+__pycache__/
+
+# 忽略虚拟环境
+venv/
