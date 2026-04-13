@@ -14,7 +14,8 @@ The system is built on the THUCNews dataset and uses a pre-trained BERT-Base-Chi
 │   ├── data/               # Dataset (Class list)
 │   └── saved_dict/         # Fine-tuned model checkpoint (bert.ckpt)
 ├── app.py                  # FastAPI Backend (Inference & Attention extraction)
-├── index.html              # Frontend (Visualization & Attention Map)
+├── THUCNews/
+│   ├── index.html              # Frontend (Visualization & Attention Map)
 ├── bert.py                 # Model architecture
 └── utils.py                # Text preprocessing and tokenization
 ```
